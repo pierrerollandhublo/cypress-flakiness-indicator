@@ -56,6 +56,36 @@ const fetchTestsForReview = async (runId) => {
     return response.data.run.testsForReview.specFiles.nodes
 }
 
+const getErrorFromTestResult = (testResult) => {
+    const errorPhrase = testResult.errorDetails?.summary
+    if (!errorPhrase) {
+        return
+    }
+    const err = errorPhrase.split('\n').shift()
+    return err
+}
+
+const fetchTestResult = async (testResultId) => {
+    const result = await fetch(
+        'https://cloud.cypress.io/graphql', {
+            method: 'POST',
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                "operationName":"DrawerTestResult",
+                "variables": {
+                    "id": testResultId
+                },
+                "query": "query DrawerTestResult($id: String!) {\n  testResult(id: $id) {\n    id\n    state\n    titleParts\n    isFlaky\n    duration\n    specHash\n    titleHash\n    screenshots {\n      nodes {\n        id\n        width\n        height\n        title\n        publicThumbnailUrl\n        fullResolutionUrl\n        __typename\n      }\n      __typename\n    }\n    video {\n      id\n      videoUrl\n      __typename\n    }\n    videoTimestamp\n    errorDetails {\n      summary\n      __typename\n    }\n    lastModification {\n      type\n      modifiedAt\n      __typename\n    }\n    attempts {\n      id\n      state\n      videoTimestamp\n      attemptNumber\n      errorDetails {\n        name\n        message\n        impactedTestCasesCount\n        codeFrame {\n          line\n          column\n          originalFile\n          repositoryFileUrl\n          frame\n          language\n          __typename\n        }\n        __typename\n      }\n      screenshot {\n        id\n        width\n        height\n        title\n        publicThumbnailUrl\n        fullResolutionUrl\n        __typename\n      }\n      __typename\n    }\n    definition {\n      test {\n        body\n        duration\n        __typename\n      }\n      hooks {\n        id\n        duration\n        name\n        body\n        __typename\n      }\n      __typename\n    }\n    instance {\n      id\n      spec {\n        id\n        basename\n        path\n        __typename\n      }\n      os {\n        name\n        version\n        __typename\n      }\n      browser {\n        name\n        version\n        formattedNameWithVersion\n        formattedName\n        __typename\n      }\n      group {\n        id\n        name\n        __typename\n      }\n      status\n      duration\n      completedAt\n      hasStdout\n      run {\n        id\n        commit {\n          authorName\n          authorEmail\n          authorAvatar\n          branch\n          branchUrl\n          sha\n          url\n          message\n          __typename\n        }\n        status\n        buildNumber\n        totalPassed\n        totalFailed\n        totalSkipped\n        totalPending\n        totalFlakyTests\n        totalDuration\n        runningDuration\n        createdAt\n        project {\n          id\n          organizationInfo {\n            id\n            __typename\n          }\n          __typename\n        }\n        __typename\n      }\n      __typename\n    }\n    run {\n      id\n      isHiddenByUsageLimits\n      isPastDataRetention\n      configTestReplayEnabled\n      cypressVersion\n      __typename\n    }\n    appliedMuteOrchestration {\n      id\n      action\n      createdAt\n      createdBy {\n        id\n        avatar\n        name\n        __typename\n      }\n      __typename\n    }\n    activeMuteOrchestration {\n      id\n      __typename\n    }\n    capture {\n      status\n      __typename\n    }\n    __typename\n  }\n}\n"
+            })
+        }
+    )
+    const response = await result.json()
+
+    return response.data.testResult
+}
+
 const fetchRunId = async (buildNumber, projectId) => {
     const result = await fetch(
         'https://cloud.cypress.io/graphql', {
@@ -138,8 +168,6 @@ const createTestResultChip = (result) => {
 const createTestResultSummary = (results) => {
     const element = document.createElement('div')
 
-    element.style.position = 'absolute'
-    element.style.bottom = '3px'
     element.style.padding = '0 4px'
     element.style.borderRadius = '4px'
     element.style.background = '#EEE'
@@ -148,6 +176,15 @@ const createTestResultSummary = (results) => {
         element.appendChild(createTestResultChip(result))
     }
 
+    return element
+}
+
+const createErrorHighlightElement = (error) => {
+    const element = document.createElement('div')
+    element.style.margin = '0 0 0 1em'
+    element.style.color = '#5a5f7a'
+    element.style.fontStyle = 'italic'
+    element.textContent = `ℹ️ ${error}`
     return element
 }
 
@@ -163,6 +200,19 @@ const guessTestResultColor = (testResults) => {
     return '#feca57'
 }
 
+const createExtraInfoElement = ({ previousRuns, error }) => {
+    const element = document.createElement('div')
+    element.style.display = 'flex'
+    element.style.position = 'absolute'
+    element.style.bottom = '3px'
+    element.style.flexFlow = 'row'
+
+    element.appendChild(createTestResultSummary(previousRuns))
+    element.appendChild(createErrorHighlightElement(error))
+
+    return element
+}
+
 const handleTestResult = async (id, testResult, groupElement, projectId) => {
     if (testResult.state !== 'FAILED') {
         return
@@ -170,12 +220,14 @@ const handleTestResult = async (id, testResult, groupElement, projectId) => {
 
     const testElement = findTestElement(id, groupElement)
     const previousRuns = await fetchPreviousRuns(testResult.id, projectId)
+    const testResultDetailed = await fetchTestResult(testResult.id)
+    const error = getErrorFromTestResult(testResultDetailed)
 
     testElement.style.position = 'relative'
     testElement.style.paddingBottom = '36px'
     testElement.style.backgroundColor = guessTestResultColor(previousRuns)
 
-    testElement.appendChild(createTestResultSummary(previousRuns))
+    testElement.appendChild(createExtraInfoElement({previousRuns, error}))
 }
 
 const handleGroup = (node, projectId) => {
